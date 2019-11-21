@@ -2,12 +2,13 @@
 const net = require('net')
 const fs = require('fs')
 const fsPromises = fs.promises
+const routehandler = require('./routeHandler')
 
 const server = net.createServer(function (connection) {
   console.log('client connected...')
   connection.on('data', function (data) {
-  	console.log(requestParser(data.toString()))
-    responseBuilder(requestParser(data.toString()), connection)
+    console.log(requestParser(data.toString()))
+    responseBuilder(data, connection)
     // connection.write(responseHeader(requestParser(data.toString())))
     // connection.end()
   })
@@ -20,28 +21,44 @@ server.listen(5432, function () {
   console.log('Listening for connections')
 })
 
-async function responseBuilder (requestObj, connection) {
+async function responseBuilder (requestData, connection) {
+  const requestObj = requestParser(requestData.toString())
   let responseHeader = ''
   let data
-  try {
-  	if (requestObj.path == '/') {
-  		 data = await fsPromises.readFile('public/echoServer.html')
-  	} else {
-  		 data = await fsPromises.readFile('public' + requestObj.path)
-  	}
-  } catch (err) {
-    console.log(err.code)
-    if (err.code == 'ENOENT') responseHeader = Buffer.from('HTTP/1.1 404 Not Found\r\n')
+  if (requestObj.path === '/' || requestObj.path.split('.').length > 1) {
+    console.log('alpha', requestObj.path.split('.'))
+    data = await staticHandler(requestObj)
+  } else {
+    console.log('beta')
+    data = routehandler.main(requestObj)
+  }
+  if (data === 404) {
+    responseHeader = Buffer.from('HTTP/1.1 404 Not Found\r\n')
     data = Buffer.from('<html><h1>404 Page not found</h1></html>')
   }
-  console.log(data)
+  console.log('data', data)
   if (responseHeader == '') responseHeader = Buffer.from('HTTP/1.1 200 OK\r\n')
   const contentLength = Buffer.from(`Content-Length: ${Buffer.byteLength(data)}`)
   const breakLine = Buffer.from('\r\n\r\n')
   const response = Buffer.concat([responseHeader, responseType(requestObj.path), contentLength, breakLine, data])
-  console.log('response', response)
   connection.write(response)
   // connection.end()
+}
+
+async function staticHandler (requestObj) {
+  let data
+  try {
+    if (requestObj.path == '/') {
+      data = await fsPromises.readFile('public/index.html')
+    } else {
+      data = await fsPromises.readFile('public' + requestObj.path)
+    }
+  } catch (err) {
+    // console.log(err.code)
+    // if (err.code == 'ENOENT') responseHeader = Buffer.from('HTTP/1.1 404 Not Found\r\n')
+    data = 404
+  }
+  return data
 }
 
 function responseType (path) {
@@ -63,17 +80,16 @@ function responseType (path) {
     ttf: 'aplication/font-sfnt',
     gif: 'image/gif'
   }
+  // console.log('content-type', type, path)
   if (type !== 'undefined' && type.length > 0) type = type[type.length - 1]
-  type = 'html'
-  console.log('mimeType', `content-type: ${mimeType[type]}`)
+  // console.log('mimeType', `content-type: ${mimeType[type]}`)
   return Buffer.from(`content-type: ${mimeType[type]}\r\n`)
 }
 
 function requestParser (input) {
   const request = input.split('\r\n\r\n')
   const requestObj = headerParser(request[0])
-  // console.log(requestObj)
-  if ('Content-Length' in requestObj && requestObj[Content - Length] > 0) {
+  if ('Content-Length' in requestObj && requestObj['Content-Length'] > 0) {
     requestObj['body'] = request[1]
   }
   return requestObj
